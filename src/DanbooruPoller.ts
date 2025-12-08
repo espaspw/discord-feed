@@ -21,73 +21,80 @@ export class DanbooruPoller {
     eventBus: EventBus,
     apiKey: string,
     apiUser: string,
-    feedConfigs: FeedConfig[]
   ) {
     this.eventBus = eventBus;
     this.danbooruApiKey = apiKey;
     this.danbooruApiUser = apiUser;
-    this.addFeedConfigs(feedConfigs);
   }
 
-  private addFeedConfigs(feedConfigs: FeedConfig[]) {
-    for (const feedConfig of feedConfigs) {
-      const newInterval = feedConfig.pollingIntervalMs ?? 30000; // Defaults to 5 minutes.
-      const tagKey = getTagKey(feedConfig.tags);
-      const existingInterval = this.tagConfigs.get(tagKey)?.pollIntervalMs;
-      if (existingInterval && existingInterval < newInterval) {
-        console.log(`[Poller] Coalescing pollers for '${feedConfig.name}' with existing feed with same tag key '${tagKey}'.`);
-      } else {
-        this.tagConfigs.set(tagKey, { pollIntervalMs: newInterval, batchSize: feedConfig?.batchSize ?? 3 });
-        console.log(`[Poller] Set polling interval for tag key '${tagKey}' to ${newInterval}ms.`);
-      }
-    }
-  }
-
-  private async initializeDatabase() {
-    try {
-      this.db = new Database(this.dbPath);
-      this.db.pragma('journal_mode = WAL');
-      await this.db.exec(`
-        CREATE TABLE IF NOT EXISTS last_ids (
-          tag_key TEXT PRIMARY KEY,
-          last_image_id INTEGER
-        )
-      `);
-      console.log('[Poller] SQLite database ready and table verified.');
-    } catch (error) {
-      console.error('[Poller Error] Failed to initialize SQLite database:', error);
-      throw new Error('Database initialization failed.');
-    }
-  }
-
-  async init() {
-    await this.initializeDatabase();
+  init() {
+    this.initializeDatabase();
     console.log('[Poller] Database initialized successfully.');
     this.isInitialized = true;
   }
 
-  startPolling() {
+  addFeed(feedConfig: FeedConfig): string {
     if (!this.isInitialized) {
-      throw new Error('[Poller Error] Called startPolling before initializing poller.');
+      throw new Error('[Poller Error] Poller must be initialized before starting feeds.');
     }
-    if (this.activeTagTimers.size > 0) {
-      console.log('[Poller] Polling already started.');
-      return;
+
+    const tagKey = getTagKey(feedConfig.tags);
+    const newInterval = feedConfig.pollingIntervalMs ?? 30000;
+    const batchSize = feedConfig.batchSize ?? 3;
+
+    const existingTimer = this.activeTagTimers.get(tagKey);
+    this.tagConfigs.set(tagKey, { pollIntervalMs: newInterval, batchSize: batchSize });
+    console.log(`[Poller] Adding feed with tag key '${tagKey}' with interval ${newInterval}ms.`);
+    return tagKey;
+  }
+
+  removeFeed(tagKey: string): boolean {
+    if (!this.tagConfigs.has(tagKey)) {
+      console.log(`[Poller] Couldn't find feed with tag key: ${tagKey}.`);
+      return false;
     }
-    console.log('[Poller] Starting polling for all feeds...');
-    for (const [tagKey, config] of this.tagConfigs.entries()) {
-      const pollingIntervalMs = config?.pollIntervalMs ?? 300000; // default to 5 minutes
-      this.startPollLoop(tagKey, pollingIntervalMs);
+    if (this.activeTagTimers.has(tagKey)) {
+      this.stopPollLoop(tagKey);
+    }
+    this.tagConfigs.delete(tagKey);
+    console.log(`[Poller] Stopped and removed timer for tag key: ${tagKey}.`);
+    return true;
+  }
+
+  startFeed(tagKey: string): boolean {
+    if (!this.isInitialized) {
+      throw new Error('[Poller Error] Called startFeed before initializing poller.');
+    }
+    const config = this.tagConfigs.get(tagKey);
+    if (!config) return false;
+    if (this.activeTagTimers.has(tagKey)) {
+      `[Poller] Feed with tag key: ${tagKey} already running, skipping.`
+      return false;
+    }
+    console.log(`[Poller] Starting feed with tag key: ${tagKey}.`);
+    this.startPollLoop(tagKey, config.pollIntervalMs);
+    return true;
+  }
+
+  stopFeed(tagKey: string): boolean {
+    if (!this.activeTagTimers.has(tagKey)) {
+      return false;
+    }
+    this.stopPollLoop(tagKey);
+    return true;
+  }
+
+  startAllFeeds(): void {
+    console.log(this.tagConfigs)
+    for (const tagKey of this.tagConfigs.keys()) {
+      this.startFeed(tagKey);
     }
   }
 
-  stopPolling() {
-    console.log('[Poller] Stopping all active polling timers...');
-    for (const [tagKey, timerId] of this.activeTagTimers.entries()) {
-      clearInterval(timerId);
-      console.log(`[Poller] Stopped timer for tag key: ${tagKey}`);
+  stopAllFeeds(): void {
+    for (const tagKey of this.activeTagTimers.keys()) {
+      this.stopFeed(tagKey);
     }
-    this.activeTagTimers.clear();
   }
 
   private startPollLoop(tagKey: string, intervalMs: number) {
@@ -104,6 +111,14 @@ export class DanbooruPoller {
     this.activeTagTimers.set(tagKey, timerId);
   }
 
+  private stopPollLoop(tagKey: string) {
+    const timerId = this.activeTagTimers.get(tagKey)
+    if (!timerId) return;
+    clearInterval(timerId);
+    this.activeTagTimers.delete(tagKey)
+    console.log(`[Poller] Stopped timer for tag key: ${tagKey}`);
+  }
+
   private async pollTag(tagKey: string) {
     const tagConfig = this.tagConfigs.get(tagKey);
 
@@ -111,7 +126,7 @@ export class DanbooruPoller {
       throw new Error(`Failed to find tag config for tag key ${tagKey}.`);
     }
 
-    const lastId = await this.getLastIdForTag(tagKey);
+    const lastId = this.getLastIdForTag(tagKey);
     console.log(`[Poller] Fetching new images for tag '${tagKey}' since ID ${lastId}...`);
 
     const apiTags = [...tagKey.split(','), 'order:id', `id:>${lastId}`].join(' ');
@@ -148,25 +163,42 @@ export class DanbooruPoller {
     }
   }
 
-  private async getLastIdForTag(tagKey: string): Promise<number> {
+  private initializeDatabase() {
+    try {
+      this.db = new Database(this.dbPath);
+      this.db.pragma('journal_mode = WAL');
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS last_ids (
+          tag_key TEXT PRIMARY KEY,
+          last_image_id INTEGER
+        )
+      `);
+      console.log('[Poller] SQLite database ready and table verified.');
+    } catch (error) {
+      console.error('[Poller Error] Failed to initialize SQLite database:', error);
+      throw new Error('Database initialization failed.');
+    }
+  }
+
+  private getLastIdForTag(tagKey: string): Promise<number> {
     if (!this.db) return 0;
-    const statement = await this.db.prepare('SELECT last_image_id FROM last_ids WHERE tag_key = ?');
-    const result = await statement.get<{ last_image_id: number; }>(tagKey);
+    const statement = this.db.prepare('SELECT last_image_id FROM last_ids WHERE tag_key = ?');
+    const result = statement.get<{ last_image_id: number; }>(tagKey);
     return result?.last_image_id ?? 0;
   }
 
-  private async saveLastIdForTag(tagKey: string, id: number): Promise<void> {
+  private saveLastIdForTag(tagKey: string, id: number): Promise<void> {
     if (!this.db) return;
 
     // Uses a transaction to ensure atomicity
     const statement = this.db.prepare(`INSERT INTO last_ids (tag_key, last_image_id) 
         VALUES (?, ?) 
         ON CONFLICT(tag_key) DO UPDATE SET last_image_id = excluded.last_image_id`);
-    await this.db.transaction(([tagKey, id]) => statement.run(tagKey, id))([tagKey, id]);
+    this.db.transaction(([tagKey, id]) => statement.run(tagKey, id))([tagKey, id]);
   }
 
   private parseDanbooruPost(post: RawDanbooruPost): DanbooruImage {
-    const expectedFields = ['id', 'rating', 'tag_string_artist', 'tag_string_character', 'tag_string_general', 'tag_string_copyright', 'file_ext', 'file_size'] as (keyof UncheckedBasePostApiResult)[];
+    const expectedFields = ['id', 'rating', 'tag_string_artist', 'tag_string_character', 'tag_string_general', 'tag_string_copyright', 'file_ext', 'file_size'] as (keyof RawDanbooruPost)[];
     checkFieldsAreDefined(post, expectedFields);
 
     const artists = post.tag_string_artist.split(' ').filter((x: string) => x !== '');

@@ -12,32 +12,31 @@ async function main() {
   }
 
   const eventBus = new EventBus();
-  const feedConfigs: FeedConfig[] = [
-    {
-      name: 'test-feed',
-      tags: ['blue_archive'],
-      webhookDestinations: [{ name: 'test', url: 'https://discord.com/api/webhooks/1398160813029851147/7Kz_XExS-QZTCVJ2He5Qf5Uk_sjwpvGPFlb0t8fsy8SIin2cyygjQHk5V3G2r0LrVUqd' }],
-      batchSize: 5,
-    },
-  ];
+  const feedConfig: FeedConfig = {
+    name: 'test-feed',
+    tags: ['blue_archive'],
+    webhookDestinations: [{ name: 'test', url: 'https://discord.com/api/webhooks/1398160813029851147/7Kz_XExS-QZTCVJ2He5Qf5Uk_sjwpvGPFlb0t8fsy8SIin2cyygjQHk5V3G2r0LrVUqd' }],
+    batchSize: 3,
+  };
+
 
   // Initialize the Poller
   const poller = new DanbooruPoller(
     eventBus,
     DANBOORU_API_KEY,
     DANBOORU_API_USER,
-    feedConfigs,
   );
 
-  const discordFeeds = feedConfigs.map(config => new DiscordFeed(eventBus, config));
+  const discordFeeds = [new DiscordFeed(eventBus, feedConfig)];
 
-  await poller.init();
-  poller.startPolling();
+  poller.init();
+  const tagKey = poller.addFeed(feedConfig);
+  poller.startAllFeeds()
 
   // Handle graceful shutdown
   process.on('SIGINT', async () => {
     console.log('\n[App] SIGINT received, stopping polling...');
-    poller.stopPolling();
+    poller.stopAllFeeds();
     console.log('[App] Application shutting down.');
     process.exit(0);
   });
