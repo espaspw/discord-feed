@@ -27,21 +27,37 @@ export class DiscordFeed {
     console.log(`[Feed:${this.config.name}] Received new image for tag '${this.tagKey}', ID: ${image.id}`);
     const payload = this.createDiscordWebhookPayload(image);
 
-    console.log(payload);
-
     for (const destination of this.config.webhookDestinations) {
-      try {
-        console.log(`[Feed:${this.config.name}] Sending webhook to ${destination.name || destination.url}...`);
-        await axios.post(destination.url, payload);
-        console.log(`[Feed:${this.config.name}] Webhook sent successfully for image ID ${image.id} to ${destination.name || destination.url}`);
-      } catch (error: any) {
-        console.error(`[Feed:${this.config.name} Error] Failed to send webhook to ${destination.name || destination.url} for image ID ${image.id}:`, error.message);
-        console.error(error);
-        if (error.response) {
-          console.error('Response data:', error.response.data);
-          console.error('Response status:', error.response.status);
+      let attempts = 0;
+      const maxAttempts = 5;
+      while (attempts < 5) {
+        attempts += 1;
+        try {
+          console.log(`[Feed:${this.config.name}] Sending webhook to ${destination.name || destination.url} for image ID ${image.id}`);
+          await axios.post(destination.url, payload);
+          console.log(`[Feed:${this.config.name}] Webhook sent successfully for image ID ${image.id} to ${destination.name || destination.url}`);
+          break;
+        } catch (error: any) {
+          if (error.response && error.response.status === 429) {
+            // If rate-limited, delay for the time given in the retry_after response, plus a random delay of up to one second * num attempts (linear backoff).
+            const retryAfterSeconds = error.response.data.retry_after + Math.random() * attempts;
+            console.warn(
+              `[Feed:${this.config.name} Warn] Rate limit detected for image ID ${image.id} towards ${destination.name}. Retrying after ${retryAfterSeconds.toFixed(2)}s.`
+            );
+            await new Promise(resolve => setTimeout(resolve, retryAfterSeconds * 1000));
+            continue;
+          } else {
+            console.error(`[Feed:${this.config.name} Error] Failed to send webhook for image ID ${image.id} to ${destination.name || destination.url}:`, error.message);
+            if (error.response) {
+              console.error('Response data:', error.response.data);
+              console.error('Response status:', error.response.status);
+            }
+            break;
+          }
         }
-        // Implement retry logic here if needed
+      }
+      if (attempts >= maxAttempts) {
+        console.error(`[Feed:${this.config.name} Error] Failed to send webhook for image ID ${image.id} to ${destination.name || destination.url} after ${maxAttempts} attempts.`);
       }
     }
   }
