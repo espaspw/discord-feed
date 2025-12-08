@@ -7,7 +7,7 @@ import { getTagKey, checkFieldsAreDefined, makeReadableList, cleanUpTags, format
 
 export class DanbooruPoller {
   private eventBus: EventBus;
-  private danbooruApiKey: string; // Replace with actual API key/user for higher rate limits
+  private danbooruApiKey: string;
   private danbooruApiUser: string;
   private isInitialized: boolean = false;
 
@@ -190,7 +190,6 @@ export class DanbooruPoller {
   private saveLastIdForTag(tagKey: string, id: number): Promise<void> {
     if (!this.db) return;
 
-    // Uses a transaction to ensure atomicity
     const statement = this.db.prepare(`INSERT INTO last_ids (tag_key, last_image_id) 
         VALUES (?, ?) 
         ON CONFLICT(tag_key) DO UPDATE SET last_image_id = excluded.last_image_id`);

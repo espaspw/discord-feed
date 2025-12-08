@@ -7,9 +7,9 @@ import { getTagKey, truncateString } from './util';
 
 export class DiscordFeed {
   private eventBus: EventBus;
-  private config: FeedConfig;
-  private tagKey: string;
-  private name: string;
+  config: FeedConfig;
+  tagKey: string;
+  name: string;
 
   constructor(eventBus: EventBus, config: FeedConfig) {
     this.eventBus = eventBus;
@@ -21,6 +21,12 @@ export class DiscordFeed {
 
   private subscribe() {
     this.eventBus.onNewImage(this.tagKey, this.handleNewImage.bind(this));
+    console.log(`[Feed:${this.name}] Subscribed to EventBus.`);
+  }
+
+  public unsubscribe() {
+    this.eventBus.off(`newImage:${this.tagKey}`, this.handleNewImage.bind(this));
+    console.log(`[Feed:${this.name}] Unsubscribed from EventBus.`);
   }
 
   private async handleNewImage(image: DanbooruImage) {
