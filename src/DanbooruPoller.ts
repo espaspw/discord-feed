@@ -2,7 +2,7 @@ import axios from 'axios';
 import Database from 'better-sqlite3';
 
 import { EventBus } from './EventBus';
-import type { TagConfig, FeedConfig, RawDanbooruPost, DanbooruImage } from './types';
+import type { TagConfig, ResolvedFeedConfig, RawDanbooruPost, DanbooruImage } from './types';
 import { getTagKey, checkFieldsAreDefined, makeReadableList, cleanUpTags, formatBytes } from './util';
 
 export class DanbooruPoller {
@@ -33,7 +33,7 @@ export class DanbooruPoller {
     this.isInitialized = true;
   }
 
-  addFeed(feedConfig: FeedConfig): string {
+  addFeed(feedConfig: ResolvedFeedConfig): string {
     if (!this.isInitialized) {
       throw new Error('[Poller Error] Poller must be initialized before starting feeds.');
     }

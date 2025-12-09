@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { DanbooruPoller } from './DanbooruPoller';
 import { DiscordFeed } from './DiscordFeed';
 import { EventBus } from './EventBus';
-import type { FeedConfig, WebhookDestination } from './types';
+import type { ResolvedFeedConfig, FeedConfig, WebhookDestination } from './types';
 import { getTagKey } from './util';
 
 const parseJson = (jsonString: string): any => {
@@ -49,13 +49,13 @@ export class FeedManager {
     `);
 
     this.db.exec(`
-        CREATE TABLE IF NOT EXISTS feeds_to_webhooks (
-          feed_id INTEGER NOT NULL,
-          webhook_id INTEGER NOT NULL,
-          PRIMARY KEY (feed_id, webhook_id),
-          FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
-          FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
-        )
+      CREATE TABLE IF NOT EXISTS feeds_to_webhooks (
+        feed_id INTEGER NOT NULL,
+        webhook_id INTEGER NOT NULL,
+        PRIMARY KEY (feed_id, webhook_id),
+        FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
+        FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
+      )
     `);
   }
 
@@ -66,31 +66,100 @@ export class FeedManager {
     console.log(`[FeedManager] Webhook cache initialized with ${this.webhookCache.size} webhooks.`);
   }
 
-  private findOrCreateWebhook(url: string, name: string): number {
-    if (this.webhookCache.has(url)) {
-      return this.webhookCache.get(url)!;
+  public createWebhook(webhook: WebhookDestination): WebhookDestination {
+    const existingWebhook = this.getWebhookIdByUrl(webhook.url);
+    if (existingWebhook) {
+      throw new Error(`Webhook with URL '${webhook.url}' already exists.`);
     }
 
     const stmt = this.db.prepare(`
       INSERT INTO webhooks (name, url) VALUES (?, ?) 
-      ON CONFLICT(url) DO UPDATE SET name=excluded.name 
-      RETURNING id
     `);
 
-    const result = stmt.run(name, url);
-    let webhookId: number;
-    if (result.lastInsertRowid) {
-      webhookId = Number(result.lastInsertRowid);
-    } else {
-      const selectStmt = this.db.prepare('SELECT id FROM webhooks WHERE url = ?');
-      webhookId = (selectStmt.get(url) as { id: number }).id;
+    // Check if name already exists
+    const existingName = this.db.prepare('SELECT 1 FROM webhooks WHERE name = ?').get(webhook.name);
+    if (existingName) {
+      throw new Error(`Webhook with name '${webhook.name}' already exists.`);
     }
 
-    this.webhookCache.set(url, webhookId);
-    return webhookId;
+    stmt.run(webhook.name, webhook.url);
+    this.initializeWebhookCache(); // Update cache
+    console.log(`[FeedManager] Created new webhook: ${webhook.name} (${webhook.url})`);
+    return webhook;
   }
 
-  private createFeedConfig(row: any, webhooks: WebhookDestination[]): FeedConfig {
+  public updateWebhook(name: string, newWebhook: WebhookDestination): WebhookDestination {
+    const existingWebhook = this.db.prepare('SELECT id, url FROM webhooks WHERE name = ?').get(name) as { id: number, url: string } | undefined;
+    if (!existingWebhook) {
+      throw new Error(`Webhook with name '${name}' not found.`);
+    }
+
+    // Check if a webhook with the new URL or new name already exists (unless it's the same webhook)
+    const urlCheck = this.db.prepare('SELECT id FROM webhooks WHERE url = ? AND id != ?').get(newWebhook.url, existingWebhook.id);
+    if (urlCheck) {
+      throw new Error(`Webhook with URL '${newWebhook.url}' already exists.`);
+    }
+    const nameCheck = this.db.prepare('SELECT id FROM webhooks WHERE name = ? AND id != ?').get(newWebhook.name, existingWebhook.id);
+    if (nameCheck) {
+      throw new Error(`Webhook with name '${newWebhook.name}' already exists.`);
+    }
+
+    const stmt = this.db.prepare('UPDATE webhooks SET name = ?, url = ? WHERE id = ?');
+    const result = stmt.run(newWebhook.name, newWebhook.url, existingWebhook.id);
+
+    if (result.changes === 0) {
+      throw new Error(`Failed to update webhook '${name}'.`);
+    }
+
+    this.initializeWebhookCache();
+    console.log(`[FeedManager] Updated webhook: ${name} -> ${newWebhook.name} (${newWebhook.url})`);
+    return newWebhook;
+  }
+
+  public deleteWebhook(name: string): boolean {
+    const existing = this.db.prepare('SELECT id FROM webhooks WHERE name = ?').get(name) as { id: number } | undefined;
+    if (!existing) {
+      console.warn(`[FeedManager] Cannot delete webhook: Name ${name} not found in DB.`);
+      return false;
+    }
+
+    // Deleting the webhook will automatically delete all entries in feeds_to_webhooks due to ON DELETE CASCADE
+    const stmt = this.db.prepare('DELETE FROM webhooks WHERE id = ?');
+    const result = stmt.run(existing.id);
+
+    if (result.changes > 0) {
+      this.initializeWebhookCache();
+      console.log(`[FeedManager] Deleted webhook: ${name}.`);
+    }
+
+    return result.changes > 0;
+  }
+
+  public getAllWebhooks(): WebhookDestination[] {
+    const stmt = this.db.prepare('SELECT name, url FROM webhooks');
+    return stmt.all() as WebhookDestination[];
+  }
+
+  private getWebhookIdByName(name: string): number | undefined {
+    const stmt = this.db.prepare('SELECT id FROM webhooks WHERE name = ?');
+    const row = stmt.get(name) as { id: number } | undefined;
+    return row?.id;
+  }
+
+  private getWebhookIdByUrl(url: string): number | undefined {
+    if (this.webhookCache.has(url)) {
+      return this.webhookCache.get(url)!;
+    }
+    const selectStmt = this.db.prepare('SELECT id FROM webhooks WHERE url = ?');
+    const row = selectStmt.get(url) as { id: number } | undefined;
+    if (row) {
+      this.webhookCache.set(url, row.id);
+      return row.id;
+    }
+    return undefined;
+  }
+
+  private createResolvedFeedConfig(row: any, webhooks: WebhookDestination[]): ResolvedFeedConfig {
     return {
       name: row.name,
       tags: parseJson(row.tags),
@@ -100,9 +169,10 @@ export class FeedManager {
     };
   }
 
-  public getAllFeedsFromDb(): (FeedConfig & { id: number, isRunning: boolean })[] {
+  public getAllFeedsFromDb(): (ResolvedFeedConfig & { id: number, isRunning: boolean })[] {
     const feedsStmt = this.db.prepare('SELECT * FROM feeds');
     const feedRows = feedsStmt.all() as any[];
+
     const mappingStmt = this.db.prepare(`
       SELECT 
         f.id AS feed_id, 
@@ -124,7 +194,7 @@ export class FeedManager {
 
     return feedRows.map(row => {
       const webhooks = webhooksByFeedId[row.id] || [];
-      const config = this.createFeedConfig(row, webhooks);
+      const config = this.createResolvedFeedConfig(row, webhooks);
 
       return {
         ...config,
@@ -138,6 +208,15 @@ export class FeedManager {
     const existingFeed = this.db.prepare('SELECT 1 FROM feeds WHERE name = ?').get(config.name);
     if (existingFeed) {
       throw new Error(`Feed with name '${config.name}' already exists.`);
+    }
+
+    const webhookIds: number[] = [];
+    for (const webhookName of config.webhookNames) {
+      const webhookId = this.getWebhookIdByName(webhookName);
+      if (!webhookId) {
+        throw new Error(`Cannot create feed '${config.name}'. Webhook with name '${webhookName}' not found.`);
+      }
+      webhookIds.push(webhookId);
     }
 
     const insertFeedStmt = this.db.prepare(`
@@ -158,14 +237,92 @@ export class FeedManager {
       );
       const feedId = Number(result.lastInsertRowid);
 
-      for (const webhook of config.webhookDestinations) {
-        const webhookId = this.findOrCreateWebhook(webhook.url, webhook.name);
+      for (const webhookId of webhookIds) {
         insertJunctionStmt.run(feedId, webhookId);
       }
     })();
 
-    console.log(`[FeedManager] Created and started new feed: ${config.name}`);
-    return config.name;
+    console.log(`[FeedManager] Created new feed: ${config.name}`);
+    return config;
+  }
+
+  public updateFeed(oldName: string, newConfig: Partial<FeedConfig>): ResolvedFeedConfig {
+    const existingFeedRow = this.db.prepare('SELECT id FROM feeds WHERE name = ?').get(oldName) as { id: number } | undefined;
+    if (!existingFeedRow) {
+      throw new Error(`Feed with name '${oldName}' not found.`);
+    }
+    const feedId = existingFeedRow.id;
+    let finalName = oldName;
+
+    let updateFields: string[] = [];
+    let updateValues: any[] = [];
+
+    // If name is updated, check for uniqueness of the new name
+    if (newConfig.name && newConfig.name !== oldName) {
+      const existingNameCheck = this.db.prepare('SELECT 1 FROM feeds WHERE name = ?').get(newConfig.name);
+      if (existingNameCheck) {
+        throw new Error(`Feed with name '${newConfig.name}' already exists. Cannot update.`);
+      }
+      updateFields.push('name = ?');
+      updateValues.push(newConfig.name);
+      finalName = newConfig.name;
+    }
+
+    if (newConfig.tags) {
+      updateFields.push('tags = ?');
+      updateValues.push(JSON.stringify(newConfig.tags));
+    }
+    if (newConfig.pollingIntervalMs) {
+      updateFields.push('pollingIntervalMs = ?');
+      updateValues.push(newConfig.pollingIntervalMs);
+    }
+    if (newConfig.batchSize) {
+      updateFields.push('batchSize = ?');
+      updateValues.push(newConfig.batchSize);
+    }
+
+    if (updateFields.length > 0) {
+      const updateStmt = this.db.prepare(`UPDATE feeds SET ${updateFields.join(', ')} WHERE id = ?`);
+      updateStmt.run(...updateValues, feedId);
+    }
+
+    // Update webhook joins
+    if (newConfig.webhookNames) {
+      const newWebhookIds: number[] = [];
+      for (const webhookName of newConfig.webhookNames) {
+        const webhookId = this.getWebhookIdByName(webhookName);
+        if (!webhookId) {
+          throw new Error(`Cannot update feed '${finalName}'. Webhook with name '${webhookName}' not found.`);
+        }
+        newWebhookIds.push(webhookId);
+      }
+
+      this.db.transaction(() => {
+        this.db.prepare('DELETE FROM feeds_to_webhooks WHERE feed_id = ?').run(feedId);
+
+        const insertJunctionStmt = this.db.prepare(`
+          INSERT INTO feeds_to_webhooks (feed_id, webhook_id) VALUES (?, ?)
+        `);
+        for (const webhookId of newWebhookIds) {
+          insertJunctionStmt.run(feedId, webhookId);
+        }
+      })();
+    }
+
+    // Stop and restart the feed if it was active and the config changed.
+    const wasRunning = this.activeFeeds.has(oldName);
+    if (wasRunning) {
+      this.stopFeed(oldName);
+    }
+
+    const resolvedConfig = this.getResolvedFeedConfigByName(finalName)!;
+
+    if (wasRunning) {
+      this.startFeed(finalName);
+    }
+
+    console.log(`[FeedManager] Updated feed: ${oldName} -> ${finalName}`);
+    return resolvedConfig;
   }
 
   public deleteFeed(name: string): boolean {
@@ -190,9 +347,14 @@ export class FeedManager {
       return true;
     }
 
-    const config = this.getFeedConfigByName(name);
+    const config = this.getResolvedFeedConfigByName(name);
     if (!config) {
       console.error(`[FeedManager] Failed to start feed: Configuration for '${name}' not found.`);
+      return false;
+    }
+
+    if (config.webhookDestinations.length === 0) {
+      console.error(`[FeedManager] Failed to start feed: No webhooks found for '${name}'.`);
       return false;
     }
 
@@ -219,7 +381,7 @@ export class FeedManager {
       return false;
     }
 
-    const config = this.getFeedConfigByName(name);
+    const config = this.getResolvedFeedConfigByName(name);
     if (!config) {
       console.error(`[FeedManager] Cannot stop feed: Config for '${name}' not found.`);
       return false;
@@ -237,7 +399,7 @@ export class FeedManager {
     return pollerStopped;
   }
 
-  public initializeActiveFeeds() {
+  public startAllFeeds() {
     console.log('[FeedManager] Loading and starting all configured feeds...');
     const feeds = this.getAllFeedsFromDb();
 
@@ -248,7 +410,7 @@ export class FeedManager {
     console.log(`[FeedManager] Successfully initialized ${this.activeFeeds.size} active feeds.`);
   }
 
-  private getFeedConfigByName(name: string): (FeedConfig & { id: number }) | undefined {
+  private getResolvedFeedConfigByName(name: string): (ResolvedFeedConfig & { id: number }) | undefined {
     const row = this.db.prepare('SELECT * FROM feeds WHERE name = ?').get(name) as any;
     if (!row) return undefined;
 
@@ -260,6 +422,7 @@ export class FeedManager {
     `);
     const webhooks = webhooksQuery.all(row.id) as WebhookDestination[];
 
-    return this.createFeedConfig(row, webhooks);
+    const resolvedConfig = this.createResolvedFeedConfig(row, webhooks);
+    return { ...resolvedConfig, id: row.id };
   }
 }

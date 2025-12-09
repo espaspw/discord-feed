@@ -2,16 +2,16 @@ import axios from 'axios';
 import type { RESTPostAPIWebhookWithTokenJSONBody as DiscordWebhook } from 'discord.js';
 
 import { EventBus } from './EventBus';
-import type { FeedConfig, DanbooruImage } from './types';
+import type { ResolvedFeedConfig, DanbooruImage } from './types';
 import { getTagKey, truncateString } from './util';
 
 export class DiscordFeed {
   private eventBus: EventBus;
-  config: FeedConfig;
+  config: ResolvedFeedConfig;
   tagKey: string;
   name: string;
 
-  constructor(eventBus: EventBus, config: FeedConfig) {
+  constructor(eventBus: EventBus, config: ResolvedFeedConfig) {
     this.eventBus = eventBus;
     this.config = config;
     this.name = config.name;

@@ -6,6 +6,14 @@ export interface WebhookDestination {
 export interface FeedConfig {
   name: string;
   tags: string[];
+  webhookNames: string[];
+  pollingIntervalMs: number;
+  batchSize: number;
+}
+
+export interface ResolvedFeedConfig {
+  name: string;
+  tags: string[];
   webhookDestinations: WebhookDestination[];
   pollingIntervalMs: number;
   batchSize: number;
