@@ -410,6 +410,29 @@ export class FeedManager {
     console.log(`[FeedManager] Successfully initialized ${this.activeFeeds.size} active feeds.`);
   }
 
+  public getFeedConfigByName(name: string): (FeedConfig & { id: number }) | undefined {
+    const row = this.db.prepare('SELECT * FROM feeds WHERE name = ?').get(name) as any;
+    if (!row) return undefined;
+
+    const webhooksQuery = this.db.prepare(`
+      SELECT w.name
+      FROM webhooks w 
+      JOIN feeds_to_webhooks fw ON w.id = fw.webhook_id 
+      WHERE fw.feed_id = ?
+    `);
+    const webhookRows = webhooksQuery.all(row.id) as { name: string }[];
+    const webhookNames = webhookRows.map(r => r.name);
+
+    return {
+      name: row.name,
+      tags: parseJson(row.tags),
+      webhookNames,
+      pollingIntervalMs: row.pollingIntervalMs,
+      batchSize: row.batchSize,
+      id: row.id,
+    };
+  }
+
   private getResolvedFeedConfigByName(name: string): (ResolvedFeedConfig & { id: number }) | undefined {
     const row = this.db.prepare('SELECT * FROM feeds WHERE name = ?').get(name) as any;
     if (!row) return undefined;
