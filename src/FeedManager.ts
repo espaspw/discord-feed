@@ -44,7 +44,9 @@ export class FeedManager {
         name TEXT UNIQUE NOT NULL,
         tags TEXT NOT NULL,
         pollingIntervalMs INTEGER,
-        batchSize INTEGER
+        batchSize INTEGER,
+        username TEXT,
+        avatarUrl TEXT
       )
     `);
 
@@ -166,6 +168,8 @@ export class FeedManager {
       webhookDestinations: webhooks,
       pollingIntervalMs: row.pollingIntervalMs,
       batchSize: row.batchSize,
+      username: row.username,
+      avatarUrl: row.avatarUrl,
     };
   }
 
@@ -220,8 +224,8 @@ export class FeedManager {
     }
 
     const insertFeedStmt = this.db.prepare(`
-      INSERT INTO feeds (name, tags, pollingIntervalMs, batchSize) 
-      VALUES (?, ?, ?, ?)
+      INSERT INTO feeds (name, tags, pollingIntervalMs, batchSize, username, avatarUrl) 
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
     const insertJunctionStmt = this.db.prepare(`
@@ -234,6 +238,8 @@ export class FeedManager {
         JSON.stringify(config.tags),
         config.pollingIntervalMs,
         config.batchSize,
+        config.username ?? null,
+        config.avatarUrl ?? null,
       );
       const feedId = Number(result.lastInsertRowid);
 
@@ -279,6 +285,14 @@ export class FeedManager {
     if (newConfig.batchSize) {
       updateFields.push('batchSize = ?');
       updateValues.push(newConfig.batchSize);
+    }
+    if (newConfig.username !== undefined) {
+      updateFields.push('username = ?');
+      updateValues.push(newConfig.username);
+    }
+    if (newConfig.avatarUrl !== undefined) {
+      updateFields.push('avatarUrl = ?');
+      updateValues.push(newConfig.avatarUrl);
     }
 
     if (updateFields.length > 0) {
@@ -429,6 +443,8 @@ export class FeedManager {
       webhookNames,
       pollingIntervalMs: row.pollingIntervalMs,
       batchSize: row.batchSize,
+      username: row.username,
+      avatarUrl: row.avatarUrl,
       id: row.id,
     };
   }

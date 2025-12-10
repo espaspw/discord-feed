@@ -9,6 +9,8 @@ export interface FeedConfig {
   webhookNames: string[];
   pollingIntervalMs: number;
   batchSize: number;
+  username?: string;
+  avatarUrl?: string;
 }
 
 export interface ResolvedFeedConfig {
@@ -17,6 +19,8 @@ export interface ResolvedFeedConfig {
   webhookDestinations: WebhookDestination[];
   pollingIntervalMs: number;
   batchSize: number;
+  username?: string;
+  avatarUrl?: string;
 }
 
 export interface TagConfig {

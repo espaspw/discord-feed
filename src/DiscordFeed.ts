@@ -33,6 +33,14 @@ export class DiscordFeed {
     console.log(`[Feed:${this.config.name}] Received new image for tag '${this.tagKey}', ID: ${image.id}`);
     const payload = this.createDiscordWebhookPayload(image);
 
+    if (this.config.username) {
+      payload.username = this.config.username;
+    }
+
+    if (this.config.avatarUrl) {
+      payload.avatar_url = this.config.avatarUrl;
+    }
+
     for (const destination of this.config.webhookDestinations) {
       let attempts = 0;
       const maxAttempts = 5;

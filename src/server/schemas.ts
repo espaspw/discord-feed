@@ -15,6 +15,8 @@ export const feedBodySchema = {
     webhookNames: { type: 'array', items: { type: 'string' } },
     pollingIntervalMs: { type: 'number', minimum: 1000 },
     batchSize: { type: 'number', minimum: 1 },
+    username: { type: 'string' },
+    avatarUrl: { type: 'string', format: 'uri' },
   },
 };
 
@@ -26,6 +28,8 @@ export const feedUpdateBodySchema = {
     webhookNames: { type: 'array', items: { type: 'string' } },
     pollingIntervalMs: { type: 'number', minimum: 1000 },
     batchSize: { type: 'number', minimum: 1 },
+    username: { type: 'string' },
+    avatarUrl: { type: 'string', format: 'uri' },
   },
   minProperties: 1,
 };
