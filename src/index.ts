@@ -27,7 +27,7 @@ async function main() {
   feedManager.initDb();
 
   const server = buildServer({ feedManager })
-  server.listen({ port: 3001 }, (err, address) => {
+  server.listen({ port: 3001, host: '0.0.0.0' }, (err, address) => {
     if (err) throw err;
     console.log(`[App] Server started on port ${3001}.`);
   });
