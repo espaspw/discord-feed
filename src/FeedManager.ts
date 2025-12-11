@@ -421,10 +421,18 @@ export class FeedManager {
     const feeds = this.getAllFeedsFromDb();
 
     for (const feed of feeds) {
-      this.poller.addFeed(feed);
       this.startFeed(feed.name);
     }
     console.log(`[FeedManager] Successfully initialized ${this.activeFeeds.size} active feeds.`);
+  }
+
+  public stopAllFeeds() {
+    console.log('[FeedManager] Stopping all running feeds...');
+    const activeFeedNames = [...this.activeFeeds.keys()];
+    for (const name of activeFeedNames) {
+      this.stopFeed(name);
+    }
+    console.log(`[FeedManager] Stopped ${activeFeedNames.length} feeds.`);
   }
 
   public getFeedLastId(name: string): number {

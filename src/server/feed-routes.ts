@@ -81,6 +81,18 @@ export const feedRoutes: FastifyPluginAsync = async (fastify, opts) => {
     reply.status(404).send({ message: `Feed with name '${request.params.name}' not found.` });
   });
 
+  // POST /api/feeds/start-all
+  fastify.post<{ Reply: { message: string } }>('/start-all', async (request, reply) => {
+    feedManager.startAllFeeds();
+    return { message: 'Triggered start sequence for all feeds.' };
+  });
+
+  // POST /api/feeds/stop-all
+  fastify.post<{ Reply: { message: string } }>('/stop-all', async (request, reply) => {
+    feedManager.stopAllFeeds();
+    return { message: 'Triggered stop sequence for all feeds.' };
+  });
+
   // GET /api/feeds/:name/start
   fastify.get<{ Params: { name: string }, Reply: { message: string } }>('/:name/start', {
     schema: {
