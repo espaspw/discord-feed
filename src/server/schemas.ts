@@ -34,6 +34,14 @@ export const feedUpdateBodySchema = {
   minProperties: 1,
 };
 
+export const feedLastIdUpdateBodySchema = {
+  type: 'object',
+  required: ['lastId'],
+  properties: {
+    lastId: { type: 'number', minimum: 0 },
+  },
+};
+
 export const webhookBodySchema = {
   type: 'object',
   required: ['name', 'url'],

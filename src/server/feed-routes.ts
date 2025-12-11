@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 
-import { resourceParamsSchema, feedUpdateBodySchema, feedBodySchema } from './schemas';
+import { resourceParamsSchema, feedUpdateBodySchema, feedBodySchema, feedLastIdUpdateBodySchema } from './schemas';
 import { FeedManager } from '../FeedManager';
 import { FeedConfig, WebhookDestination, ResolvedFeedConfig } from '../types';
 
@@ -117,5 +117,36 @@ export const feedRoutes: FastifyPluginAsync = async (fastify, opts) => {
     }
     // If the feed exists but wasn't running, we return a non-error success message.
     return { message: `Feed '${request.params.name}' was already stopped.` };
+  });
+
+  // GET /api/feeds/:name/last-id
+  fastify.get<{ Params: { name: string }, Reply: number }>('/:name/last-id', {
+    schema: {
+      params: resourceParamsSchema,
+    }
+  }, async (request, reply) => {
+    const lastId = feedManager.getFeedLastId(request.params.name);
+
+    if (lastId !== -1) {
+      return lastId;
+    }
+
+    reply.status(404).send({ message: `Feed with name '${request.params.name}' not found.` });
+  });
+
+  // PATCH /api/feeds/:name/last-id
+  fastify.patch<{ Params: { name: string }, Body: { lastId: number }, Reply: { message: string } }>('/:name/last-id', {
+    schema: {
+      params: resourceParamsSchema,
+      body: feedLastIdUpdateBodySchema,
+    }
+  }, async (request, reply) => {
+    const success = feedManager.updateFeedLastId(request.params.name, request.body.lastId);
+
+    if (success) {
+      return { message: `Successfully updated last_id for feed '${request.params.name}' to ${request.body.lastId}.` };
+    }
+
+    reply.status(404).send({ message: `Feed with name '${request.params.name}' not found.` });
   });
 };

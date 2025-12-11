@@ -424,6 +424,31 @@ export class FeedManager {
     console.log(`[FeedManager] Successfully initialized ${this.activeFeeds.size} active feeds.`);
   }
 
+  public getFeedLastId(name: string): number {
+    const config = this.getFeedConfigByName(name);
+    if (!config) {
+      console.warn(`[FeedManager] Feed '${name}' not found.`);
+      return -1;
+    }
+
+    const tagKey = getTagKey(config.tags);
+    return this.poller.getLastIdForTag(tagKey);
+  }
+
+  public updateFeedLastId(name: string, newLastId: number): boolean {
+    const config = this.getFeedConfigByName(name);
+    if (!config) {
+      console.warn(`[FeedManager] Cannot update last_id: Feed '${name}' not found.`);
+      return false;
+    }
+
+    const tagKey = getTagKey(config.tags);
+    this.poller.saveLastIdForTag(tagKey, newLastId);
+
+    console.log(`[FeedManager] Manually updated last_id for feed '${name}' (TagKey: ${tagKey}) to ${newLastId}.`);
+    return true;
+  }
+
   public getFeedConfigByName(name: string): (FeedConfig & { id: number }) | undefined {
     const row = this.db.prepare('SELECT * FROM feeds WHERE name = ?').get(name) as any;
     if (!row) return undefined;

@@ -15,7 +15,7 @@ export class DanbooruPoller {
   private activeTagTimers: Map<string, NodeJS.Timeout> = new Map();
   private db: Database | null = null;
   private dbPath: string = 'db/data.db';
-  private baseEndpoint: string = 'https://testbooru.donmai.us';
+  private baseEndpoint: string = 'https://danbooru.donmai.us';
 
   constructor(
     eventBus: EventBus,
@@ -180,14 +180,14 @@ export class DanbooruPoller {
     }
   }
 
-  private getLastIdForTag(tagKey: string): Promise<number> {
+  public getLastIdForTag(tagKey: string): Promise<number> {
     if (!this.db) return 0;
     const statement = this.db.prepare('SELECT last_image_id FROM last_ids WHERE tag_key = ?');
     const result = statement.get<{ last_image_id: number; }>(tagKey);
     return result?.last_image_id ?? 0;
   }
 
-  private saveLastIdForTag(tagKey: string, id: number): Promise<void> {
+  public saveLastIdForTag(tagKey: string, id: number): Promise<void> {
     if (!this.db) return;
 
     const statement = this.db.prepare(`INSERT INTO last_ids (tag_key, last_image_id) 
