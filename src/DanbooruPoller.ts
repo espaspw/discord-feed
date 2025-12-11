@@ -129,7 +129,7 @@ export class DanbooruPoller {
     const lastId = this.getLastIdForTag(tagKey);
     console.log(`[Poller] Fetching new images for tag '${tagKey}' since ID ${lastId}...`);
 
-    const apiTags = [...tagKey.split(','), 'order:id', `id:>${lastId}`].join(' ');
+    const apiTags = [...tagKey.split('+'), 'order:id', `id:>${lastId}`].join(' ');
 
     try {
       const response = await axios.get<RawDanbooruPost[]>(`${this.baseEndpoint}/posts.json`, {

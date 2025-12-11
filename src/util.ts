@@ -46,5 +46,5 @@ export function truncateString(string: string, limit = 96) {
 
 export function getTagKey(tags: string[]) {
   const sortedTags = tags.toSorted((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-  return sortedTags.join(',')
+  return sortedTags.join('+')
 }
