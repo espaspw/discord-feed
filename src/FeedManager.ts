@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { DanbooruPoller } from './DanbooruPoller';
 import { DiscordFeed } from './DiscordFeed';
 import { EventBus } from './EventBus';
+import { DedupeCache } from './DedupeCache';
 import type { ResolvedFeedConfig, FeedConfig, WebhookDestination } from './types';
 import { getTagKey } from './util';
 
@@ -18,6 +19,7 @@ export class FeedManager {
   private db: Database;
   private poller: DanbooruPoller;
   private eventBus: EventBus;
+  private dedupeCache: DedupeCache;
 
   private activeFeeds: Map<string, DiscordFeed> = new Map();
   private webhookCache: Map<string, number> = new Map();
@@ -27,6 +29,7 @@ export class FeedManager {
     this.db.pragma('journal_mode = WAL');
     this.poller = poller;
     this.eventBus = eventBus;
+    this.dedupeCache = new DedupeCache();
   }
 
   initDb() {
@@ -382,7 +385,7 @@ export class FeedManager {
       return false;
     }
 
-    const discordFeed = new DiscordFeed(this.eventBus, config);
+    const discordFeed = new DiscordFeed(this.eventBus, config, this.dedupeCache);
     this.activeFeeds.set(name, discordFeed);
 
     console.log(`[FeedManager] Started polling and Discord subscription for '${name}'.`);

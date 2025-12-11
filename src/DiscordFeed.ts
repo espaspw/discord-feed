@@ -4,15 +4,18 @@ import type { RESTPostAPIWebhookWithTokenJSONBody as DiscordWebhook } from 'disc
 import { EventBus } from './EventBus';
 import type { ResolvedFeedConfig, DanbooruImage } from './types';
 import { getTagKey, truncateString } from './util';
+import { DedupeCache } from './DedupeCache';
 
 export class DiscordFeed {
   private eventBus: EventBus;
+  private dedupeCache: DedupeCache;
   config: ResolvedFeedConfig;
   tagKey: string;
   name: string;
 
-  constructor(eventBus: EventBus, config: ResolvedFeedConfig) {
+  constructor(eventBus: EventBus, config: ResolvedFeedConfig, dedupeCache: DedupeCache) {
     this.eventBus = eventBus;
+    this.dedupeCache = dedupeCache;
     this.config = config;
     this.name = config.name;
     this.tagKey = getTagKey(config.tags);
@@ -42,6 +45,13 @@ export class DiscordFeed {
     }
 
     for (const destination of this.config.webhookDestinations) {
+      const cacheKey = `${destination.url}::${image.id}`;
+
+      if (!this.dedupeCache.tryAdd(cacheKey)) {
+        console.log(`[Feed:${this.config.name}] Skipping duplicate send of ID ${image.id} to ${destination.name ?? 'webhook'}.`);
+        continue;
+      }
+
       let attempts = 0;
       const maxAttempts = 5;
       while (attempts < 5) {
